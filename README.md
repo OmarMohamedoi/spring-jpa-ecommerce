@@ -7,7 +7,7 @@ A robust backend application built with **Spring Boot**, **Spring Data JPA / Hib
 ## 🚀 Tech Stack & Core Technologies
 
 *   **Java 17+** (leveraging modern features like Records)
-*   **Spring Boot** (Core, Context, AOP)
+*   **Spring** (Core, Context, AOP)
 *   **Spring Data JPA & Hibernate** (ORM, Object-Relational Mapping, JPQL)
 *   **H2 Database** (In-memory relational database for rapid testing)
 *   **Maven / Gradle** (Dependency management)
