@@ -5,6 +5,7 @@ import jakarta.persistence.PersistenceContext;
 import org.example.dto.*;
 import org.example.model.OrderStatus;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
@@ -17,12 +18,14 @@ public class ReportRepository {
     EntityManager entityManager;
 
     public List<CategoryRevenueDto> revenueByCategory() {
-        String jpql = "SELECT NEW org.example.dto.CategoryRevenueDto(p.category, SUM(i.unitPrice * i.quantity)) " +
+        // FIX 1: Join the many-to-many categories collection and group by category (c)
+        String jpql = "SELECT NEW org.example.dto.CategoryRevenueDto(c, SUM(i.unitPrice * i.quantity)) " +
                 "FROM OrderItem i " +
                 "JOIN i.product p " +
+                "JOIN p.categories c " +
                 "JOIN i.order o " +
                 "WHERE o.status IN (:statuses) " +
-                "GROUP BY p.category";
+                "GROUP BY c";
 
         return entityManager.createQuery(jpql, CategoryRevenueDto.class)
                 .setParameter("statuses", List.of(OrderStatus.PAID, OrderStatus.SHIPPED))
@@ -40,7 +43,7 @@ public class ReportRepository {
 
         return entityManager.createQuery(jpql, CustomerSpendingDto.class)
                 .setParameter("statuses", List.of(OrderStatus.PAID, OrderStatus.SHIPPED))
-                .setMaxResults(limit) // Handles the 'limit' parameter cleanly
+                .setMaxResults(limit)
                 .getResultList();
     }
 
@@ -52,7 +55,6 @@ public class ReportRepository {
         List<OrderStatusCountDto> results = entityManager.createQuery(jpql, OrderStatusCountDto.class)
                 .getResultList();
 
-        // Convert the list of records into a Map<OrderStatus, Long>
         return results.stream()
                 .collect(Collectors.toMap(
                         OrderStatusCountDto::status,
@@ -72,13 +74,13 @@ public class ReportRepository {
     }
 
     public List<MonthlySalesDto> monthlySales(int year) {
-        String jpql = "SELECT NEW org.example.dto.MonthlySalesDto(MONTH(o.orderDate), SUM(i.unitPrice * i.quantity)) " +
+        String jpql = "SELECT NEW org.example.dto.MonthlySalesDto(MONTH(o.orderedAt), SUM(i.unitPrice * i.quantity)) " +
                 "FROM OrderItem i " +
                 "JOIN i.order o " +
-                "WHERE YEAR(o.orderDate) = :year " +
+                "WHERE YEAR(o.orderedAt) = :year " +
                 "AND o.status IN (:statuses) " +
-                "GROUP BY MONTH(o.orderDate) " +
-                "ORDER BY MONTH(o.orderDate)";
+                "GROUP BY MONTH(o.orderedAt) " +
+                "ORDER BY MONTH(o.orderedAt)";
 
         return entityManager.createQuery(jpql, MonthlySalesDto.class)
                 .setParameter("year", year)
@@ -86,18 +88,19 @@ public class ReportRepository {
                 .getResultList();
     }
 
-    public int applyDiscount(String category, double percent) {
-        // Calculate the multiplier (e.g., 10% discount -> multiply by 0.90)
+    @Transactional
+    public int applyDiscount(String categoryName, double percent) {
         double multiplier = 1.0 - (percent / 100.0);
 
-        String jpql = "UPDATE Product p SET p.price = p.price * :multiplier WHERE p.category = :category";
+        // FIX 2: Use an EXISTS subquery to check against the categories collection by name
+        String jpql = "UPDATE Product p SET p.price = p.price * :multiplier " +
+                "WHERE EXISTS (SELECT c FROM p.categories c WHERE c.name = :categoryName)";
 
         int updatedCount = entityManager.createQuery(jpql)
                 .setParameter("multiplier", multiplier)
-                .setParameter("category", category)
+                .setParameter("categoryName", categoryName)
                 .executeUpdate();
 
-        // CRITICAL: Clear the persistence context so cache doesn't hold stale prices
         entityManager.clear();
 
         return updatedCount;
